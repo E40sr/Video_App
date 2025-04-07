@@ -1,45 +1,67 @@
 const express = require('express');
-const app = express();
-const server = require('http').Server(app);
-const io = require('socket.io')(server);
-const port = process.env.PORT || 4000;
-const { v4: uuidv4 } = require('uuid');
+const http = require('http');
+const { Server } = require('socket.io');
 const { ExpressPeerServer } = require('peer');
+const { v4: uuidv4 } = require('uuid');
 
-const peer = ExpressPeerServer(server, { debug: true });
-app.use('/peerjs', peer);
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+const peerServer = ExpressPeerServer(server, { debug: true });
+app.use('/peerjs', peerServer);
 
 app.set('view engine', 'ejs');
 app.use(express.static('public'));
 
 app.get('/', (req, res) => {
-  res.send(uuidv4() + '<hr>' + '<a href="/:root">Video Chat</a>');
+  res.render('index');
 });
 
-app.get('/:room', (req, res) => {
-  res.render('index', { RoomId: req.params.room });
-});
+let waitingUsers = [];
 
-io.on('connection', (socket) => {
-  socket.on('newUser', (id, room) => {
-    if (!room) {
-      console.error('Room is undefined');
-      return;
+io.on('connection', socket => {
+  console.log('User connected:', socket.id);
+
+  socket.on('register', (peerId) => {
+    socket.peerId = peerId;
+
+    // Try to pair with someone
+    if (waitingUsers.length > 0) {
+      const partner = waitingUsers.shift();
+      if (partner.connected) {
+        socket.partner = partner;
+        partner.partner = socket;
+
+        socket.emit('partner', partner.peerId);
+        partner.emit('partner', peerId);
+      }
+    } else {
+      waitingUsers.push(socket);
     }
-
-    socket.join(room);
-    console.log(`User ${id} joined room ${room}`);
-
-    // FIXED: Removed `broadcast` since `socket.to(room)` already excludes the sender
-    socket.to(room).emit('userJoined', id);
-
-    socket.on('disconnect', () => {
-      console.log(`User ${id} disconnected from room ${room}`);
-      socket.to(room).emit('userDisconnect', id);
-    });
   });
+
+  socket.on('next', () => {
+    disconnectPartner(socket);
+    socket.emit('waiting');
+    waitingUsers.push(socket);
+  });
+
+  socket.on('disconnect', () => {
+    disconnectPartner(socket);
+    waitingUsers = waitingUsers.filter(u => u !== socket);
+  });
+
+  function disconnectPartner(sock) {
+    if (sock.partner) {
+      sock.partner.emit('partner-disconnected');
+      sock.partner.partner = null;
+      sock.partner = null;
+    }
+  }
 });
 
-server.listen(port, () => {
-  console.log('Server running on port:', port);
+const PORT = process.env.PORT || 4000;
+server.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
 });
