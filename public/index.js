@@ -49,4 +49,4 @@ function setupCall(call) {
   call.on('close', () => {
     remoteVideo.srcObject = null;
   });
-                                        }
+        }
