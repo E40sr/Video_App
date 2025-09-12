@@ -18,44 +18,66 @@ app.get('/', (req, res) => {
   res.render('index');
 });
 
-let waitingUsers = [];
+
+const allUsers = new Set(); // Set of all connected sockets
+
+function getRandomPartner(excludeSocket) {
+  const candidates = Array.from(allUsers).filter(sock => sock !== excludeSocket && sock.connected && !sock.partner);
+  if (candidates.length === 0) return null;
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
 
 io.on('connection', socket => {
   console.log('User connected:', socket.id);
 
+
+  allUsers.add(socket);
+
   socket.on('register', (peerId) => {
     socket.peerId = peerId;
-
-    // Try to pair with someone
-    if (waitingUsers.length > 0) {
-      const partner = waitingUsers.shift();
-      if (partner.connected) {
-        socket.partner = partner;
-        partner.partner = socket;
-
-        socket.emit('partner', partner.peerId);
-        partner.emit('partner', peerId);
-      }
-    } else {
-      waitingUsers.push(socket);
+    // Try to pair with a random available partner
+    const partner = getRandomPartner(socket);
+    if (partner) {
+      disconnectPartner(socket);
+      disconnectPartner(partner);
+      socket.partner = partner;
+      partner.partner = socket;
+      socket.emit('partner', partner.peerId);
+      partner.emit('partner', peerId);
     }
+    // If no partner, just wait (do nothing)
   });
+
 
   socket.on('next', () => {
     disconnectPartner(socket);
     socket.emit('waiting');
-    waitingUsers.push(socket);
+    // Try to pair with a random available partner
+    const partner = getRandomPartner(socket);
+    if (partner) {
+      disconnectPartner(socket);
+      disconnectPartner(partner);
+      socket.partner = partner;
+      partner.partner = socket;
+      socket.emit('partner', partner.peerId);
+      partner.emit('partner', socket.peerId);
+    }
+    // If no partner, just wait
   });
+
 
   socket.on('disconnect', () => {
     disconnectPartner(socket);
-    waitingUsers = waitingUsers.filter(u => u !== socket);
+    allUsers.delete(socket);
   });
 
   function disconnectPartner(sock) {
     if (sock.partner) {
+      // Notify partner and fully reset both sides
+      if (sock.partner.partner === sock) {
+        sock.partner.partner = null;
+      }
       sock.partner.emit('partner-disconnected');
-      sock.partner.partner = null;
       sock.partner = null;
     }
   }
