@@ -21,8 +21,14 @@ app.get('/', (req, res) => {
 
 const allUsers = new Set(); // Set of all connected sockets
 
-function getRandomPartner(excludeSocket) {
-  const candidates = Array.from(allUsers).filter(sock => sock !== excludeSocket && sock.connected && !sock.partner);
+function getRandomPartner(excludeSocket, lastPartner) {
+  // Exclude self, last partner, and only include connected, unpaired sockets
+  const candidates = Array.from(allUsers).filter(sock =>
+    sock !== excludeSocket &&
+    sock !== lastPartner &&
+    sock.connected &&
+    !sock.partner
+  );
   if (candidates.length === 0) return null;
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
@@ -35,13 +41,16 @@ io.on('connection', socket => {
 
   socket.on('register', (peerId) => {
     socket.peerId = peerId;
-    // Try to pair with a random available partner
-    const partner = getRandomPartner(socket);
+    socket.lastPartner = null;
+    // Try to pair with a random available partner (not last partner)
+    const partner = getRandomPartner(socket, socket.lastPartner);
     if (partner) {
       disconnectPartner(socket);
       disconnectPartner(partner);
       socket.partner = partner;
       partner.partner = socket;
+      socket.lastPartner = partner;
+      partner.lastPartner = socket;
       socket.emit('partner', partner.peerId);
       partner.emit('partner', peerId);
     }
@@ -52,13 +61,15 @@ io.on('connection', socket => {
   socket.on('next', () => {
     disconnectPartner(socket);
     socket.emit('waiting');
-    // Try to pair with a random available partner
-    const partner = getRandomPartner(socket);
+    // Try to pair with a random available partner (not last partner)
+    const partner = getRandomPartner(socket, socket.lastPartner);
     if (partner) {
       disconnectPartner(socket);
       disconnectPartner(partner);
       socket.partner = partner;
       partner.partner = socket;
+      socket.lastPartner = partner;
+      partner.lastPartner = socket;
       socket.emit('partner', partner.peerId);
       partner.emit('partner', socket.peerId);
     }
