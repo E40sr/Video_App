@@ -19,10 +19,9 @@ app.get('/', (req, res) => {
 });
 
 
-const allUsers = new Set(); // Set of all connected sockets
+const allUsers = new Set();
 
 function getRandomPartner(excludeSocket, lastPartner) {
-  // Exclude self, last partner, and only include connected, unpaired sockets
   const candidates = Array.from(allUsers).filter(sock =>
     sock !== excludeSocket &&
     sock !== lastPartner &&
@@ -42,7 +41,7 @@ io.on('connection', socket => {
   socket.on('register', (peerId) => {
     socket.peerId = peerId;
     socket.lastPartner = null;
-    // Try to pair with a random available partner (not last partner)
+
     const partner = getRandomPartner(socket, socket.lastPartner);
     if (partner) {
       disconnectPartner(socket);
@@ -54,14 +53,13 @@ io.on('connection', socket => {
       socket.emit('partner', partner.peerId);
       partner.emit('partner', peerId);
     }
-    // If no partner, just wait (do nothing)
+
   });
 
 
   socket.on('next', () => {
     disconnectPartner(socket);
     socket.emit('waiting');
-    // Try to pair with a random available partner (not last partner)
     const partner = getRandomPartner(socket, socket.lastPartner);
     if (partner) {
       disconnectPartner(socket);
@@ -73,7 +71,6 @@ io.on('connection', socket => {
       socket.emit('partner', partner.peerId);
       partner.emit('partner', socket.peerId);
     }
-    // If no partner, just wait
   });
 
 
@@ -84,7 +81,6 @@ io.on('connection', socket => {
 
   function disconnectPartner(sock) {
     if (sock.partner) {
-      // Notify partner and fully reset both sides
       if (sock.partner.partner === sock) {
         sock.partner.partner = null;
       }
